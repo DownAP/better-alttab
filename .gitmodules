@@ -1,0 +1,3 @@
+[submodule "better-altab/extern/imgui"]
+	path = better-altab/extern/imgui
+	url = https://github.com/ocornut/imgui
