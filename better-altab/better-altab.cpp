@@ -9,6 +9,8 @@
 #include <string>
 #include <shellapi.h> 
 #include <shlwapi.h>
+#include <map>
+#include <unordered_map>
 
 // tray
 #define WM_TRAYICON (WM_USER + 1)
@@ -20,7 +22,9 @@ HMENU hTrayMenu = nullptr;
 HWND hTrayWindow = nullptr;
 bool autoStartEnabled = false;
 
-
+//map, not the happiest decision 
+static std::map<UINT, HWND> g_assignedWindows;
+std::unordered_map<HWND, UINT> hwndToVk;
 
 bool showOverlay = false;
 bool wasShiftPressed = false;
@@ -36,6 +40,33 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
     if (nCode == HC_ACTION)
     {
         KBDLLHOOKSTRUCT* p = (KBDLLHOOKSTRUCT*)lParam;
+        bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+        bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+        UINT vk = p->vkCode;
+
+        if (ctrl && shift) {
+            auto it = g_assignedWindows.find(vk);
+            if (it != g_assignedWindows.end()) {
+                HWND h = it->second;
+
+                HWND fg = GetForegroundWindow();
+                DWORD fgThread = GetWindowThreadProcessId(fg, nullptr);
+                DWORD thisThread = GetCurrentThreadId();
+                AttachThreadInput(fgThread, thisThread, TRUE);
+
+                WINDOWPLACEMENT pl{ sizeof(pl) };
+                GetWindowPlacement(h, &pl);
+                if (pl.showCmd == SW_SHOWMINIMIZED)
+                    ShowWindow(h, SW_RESTORE);
+                else
+                    ShowWindow(h, SW_SHOW);
+
+                SetWindowPos(h, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                SetForegroundWindow(h);
+                AttachThreadInput(fgThread, thisThread, FALSE);
+                return 1;
+            }
+        }
 
         if (wParam == WM_KEYDOWN && p->vkCode == 'B')
         {
@@ -102,7 +133,7 @@ LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             AppendMenu(hTrayMenu, MF_SEPARATOR, 0, nullptr);
             AppendMenu(hTrayMenu, MF_STRING, ID_TRAY_EXIT, L"Exit");
 
-            SetForegroundWindow(hwnd); // important!
+            SetForegroundWindow(hwnd);
             TrackPopupMenu(hTrayMenu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, nullptr);
             PostMessage(hwnd, WM_NULL, 0, 0);
         }
@@ -163,6 +194,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 
     Shell_NotifyIcon(NIM_ADD, &nid);
 
+    hwndToVk.reserve(g_assignedWindows.size());
+    for (auto& kv : g_assignedWindows)
+        hwndToVk[kv.second] = kv.first;
 
     WindowManager wm;
     wm.RefreshWindows(renderer.GetDevice());
@@ -227,6 +261,35 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
                 selectedIndex = 0;
             }
 
+            hwndToVk.clear();
+            hwndToVk.reserve(g_assignedWindows.size());
+            for (auto& kv : g_assignedWindows)
+                hwndToVk[kv.second] = kv.first;
+
+            std::string cmd(searchBuffer);
+            std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::tolower);
+
+            bool assignMode = cmd.size() >= 2 && cmd[0] == ':' && cmd[1] == 'a';
+            bool unassignMode = cmd.size() >= 2 && cmd[0] == ':' && cmd[1] == 'u';
+
+            UINT assignVk = 0;
+            if (assignMode && cmd.size() >= 3) {
+                SHORT vks = VkKeyScanA(cmd[2]);
+                if (vks != -1) assignVk = LOBYTE(vks);
+            }
+
+            std::wstring filter;
+            if (!assignMode && !unassignMode && !cmd.empty()) {
+                filter = std::wstring(cmd.begin(), cmd.end());
+                std::transform(filter.begin(), filter.end(),
+                    filter.begin(), ::towlower);
+            }
+
+            hwndToVk.clear();
+            hwndToVk.reserve(g_assignedWindows.size());
+            for (auto& kv : g_assignedWindows)
+                hwndToVk[kv.second] = kv.first;
+
             ImGui::PopStyleColor();
 
             if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
@@ -251,17 +314,74 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
                 std::wstring lowerTitle = w.title;
                 std::transform(lowerTitle.begin(), lowerTitle.end(), lowerTitle.begin(), ::towlower);
 
-                if (searchW.empty() || lowerTitle.find(searchW) != std::wstring::npos)
+                if (unassignMode)
                 {
+                    if (hwndToVk.find(w.hwnd) == hwndToVk.end())
+                        continue;
+                }
+                else if (assignMode)
+                {
+                    //
+                }
+                // normal  mode
+                else
+                {
+                    if (!filter.empty() &&
+                        lowerTitle.find(filter) == std::wstring::npos)
+                        continue;
+                }
+                    
                     if (visibleCount == selectedIndex) selectedHwnd = w.hwnd;
+
+                    UINT boundVk = 0;
+                    auto it = hwndToVk.find(w.hwnd);
+                    if (it != hwndToVk.end())
+                        boundVk = it->second;
+
+                    // label build
+                    std::string title = std::string(w.title.begin(), w.title.end());
+                    std::string id = "##" + std::to_string((uintptr_t)w.hwnd);
+                    std::string label;
+                    if (boundVk)
+                    {
+                        //  VK > scan code > name
+                        UINT scan = MapVirtualKeyA(boundVk, MAPVK_VK_TO_VSC);
+                        char name[32] = { 0 };
+                        GetKeyNameTextA(scan << 16, name, sizeof(name));
+
+                        label = std::string("[") + name + "] " + title + id;
+                    }
+                    else
+                    {
+                        label = title + id;
+                    }
 
                     if (w.icon) ImGui::Image(w.icon, ImVec2(16, 16));
                     ImGui::SameLine();
 
                     // handle ms click
-                    std::string label = std::string(w.title.begin(), w.title.end()) + "##" + std::to_string(reinterpret_cast<uintptr_t>(w.hwnd));
                     if (ImGui::Selectable(label.c_str(), visibleCount == selectedIndex)) {
                         selectedHwnd = w.hwnd;
+
+                        // handle bind on ms click
+                        std::string cmd(searchBuffer);
+                        std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::tolower);
+
+
+                        bool assignMode = cmd.size() >= 2 && cmd[0] == ':' && cmd[1] == 'a';
+                        bool unassignMode = cmd.size() >= 2 && cmd[0] == ':' && cmd[1] == 'u';
+
+                        UINT assignVk = 0;
+                        if (assignMode && cmd.size() >= 3) {
+                            SHORT vks = VkKeyScanA(cmd[2]);
+                            if (vks != -1) assignVk = LOBYTE(vks);
+                        }
+
+                        if (assignMode && selectedHwnd)
+                        {
+                            // bind
+                            g_assignedWindows[assignVk] = selectedHwnd;
+                        }
 
                         WINDOWPLACEMENT placement = { sizeof(WINDOWPLACEMENT) };
                         GetWindowPlacement(selectedHwnd, &placement);
@@ -286,7 +406,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
                         selectedHwnd = w.hwnd;
                     }
                     visibleCount++;
-                }
+                
                 ++index;
             }
 
@@ -298,7 +418,33 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
             std::string cmd(searchBuffer);
             std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::tolower);
 
-            if (cmd.starts_with("r:")) {
+
+            bool assignMode = cmd.size() >= 2 && cmd[0] == ':' && cmd[1] == 'a';
+            bool unassignMode = cmd.size() >= 2 && cmd[0] == ':' && cmd[1] == 'u';
+
+            UINT assignVk = 0;
+            if (assignMode && cmd.size() >= 3) {
+                SHORT vks = VkKeyScanA(cmd[2]);
+                if (vks != -1) assignVk = LOBYTE(vks);
+            }
+
+            if (assignMode && selectedHwnd)
+            {
+                // bind
+                g_assignedWindows[assignVk] = selectedHwnd;
+            }
+            else if (unassignMode && selectedHwnd)
+            {
+                for (auto it = g_assignedWindows.begin(); it != g_assignedWindows.end(); ++it)
+                {
+                    if (it->second == selectedHwnd)
+                    {
+                        g_assignedWindows.erase(it);
+                        break;
+                    }
+                }
+            }
+            else if (cmd.starts_with("r:")) {
                 std::string toRun = cmd.substr(2);
                 if (!toRun.empty()) {
                     ShellExecuteA(nullptr, "open", toRun.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
