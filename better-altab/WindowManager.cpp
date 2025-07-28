@@ -1,4 +1,4 @@
-#include "WindowManager.h"
+﻿#include "WindowManager.h"
 #include "IconUtils.h"
 
 static ID3D11Device* g_device = nullptr;
@@ -6,9 +6,16 @@ static std::vector<WindowEntry>* g_list = nullptr;
 
 BOOL CALLBACK EnumProc(HWND hwnd, LPARAM)
 {
+    LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    if (ex & WS_EX_TOOLWINDOW)
+         return TRUE;
+    
+    BOOL cloaked = FALSE;
+    if (SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked)
+        return TRUE;
+    
     if (!IsWindowVisible(hwnd)) return TRUE;
     if (GetWindow(hwnd, GW_OWNER)) return TRUE;
-    if (GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) return TRUE;
     if (GetWindowTextLengthW(hwnd) == 0) return TRUE;
 
     wchar_t title[256];

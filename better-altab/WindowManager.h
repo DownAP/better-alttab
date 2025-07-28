@@ -3,6 +3,8 @@
 #include <string>
 #include <Windows.h>
 #include <d3d11.h>
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
 
 struct WindowEntry {
     HWND hwnd;
