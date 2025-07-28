@@ -135,6 +135,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AppManager.cpp" />
     <ClCompile Include="better-altab.cpp" />
     <ClCompile Include="extern\imgui\backends\imgui_impl_dx11.cpp" />
     <ClCompile Include="extern\imgui\backends\imgui_impl_win32.cpp" />
@@ -144,10 +145,13 @@
     <ClCompile Include="extern\imgui\imgui_tables.cpp" />
     <ClCompile Include="extern\imgui\imgui_widgets.cpp" />
     <ClCompile Include="IconUtils.cpp" />
+    <ClCompile Include="Overlay.cpp" />
     <ClCompile Include="Renderer.cpp" />
+    <ClCompile Include="TrayIcon.cpp" />
     <ClCompile Include="WindowManager.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AppManager.h" />
     <ClInclude Include="extern\imgui\backends\imgui_impl_dx11.h" />
     <ClInclude Include="extern\imgui\backends\imgui_impl_win32.h" />
     <ClInclude Include="extern\imgui\imconfig.h" />
@@ -158,7 +162,9 @@
     <ClInclude Include="extern\imgui\imstb_truetype.h" />
     <ClInclude Include="IconUtils.h" />
     <ClInclude Include="imgui_config.h" />
+    <ClInclude Include="Overlay.h" />
     <ClInclude Include="Renderer.h" />
+    <ClInclude Include="TrayIcon.h" />
     <ClInclude Include="WindowManager.h" />
   </ItemGroup>
   <ItemGroup>
