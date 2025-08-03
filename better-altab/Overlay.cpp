@@ -67,6 +67,7 @@ namespace Overlay {
                         ShowWindow(h, SW_SHOW);
 
                     SetWindowPos(h, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                    AllowSetForegroundWindow(ASFW_ANY);
                     SetForegroundWindow(h);
                     AttachThreadInput(fgThread, thisThread, FALSE);
                     return 1;
@@ -75,8 +76,19 @@ namespace Overlay {
 
             if (wParam == WM_KEYDOWN && p->vkCode == 'B')
             {
-                if (GetAsyncKeyState(VK_SHIFT) & 0x8000) {
-                    triggerGui = true;
+                if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
+                {
+                    bool otherDown = false;
+                    for (int code = 0; code < 256 && !otherDown; ++code)
+                    {
+                        if (code == 'B' || code == VK_SHIFT || code == VK_LSHIFT ||
+                            code == VK_RSHIFT)
+                            continue;
+                        if (GetAsyncKeyState(code) & 0x8000)
+                            otherDown = true;
+                    }
+                    if (!otherDown)
+                        triggerGui = true;
                 }
             }
         }
@@ -411,7 +423,12 @@ namespace Overlay {
                 SetWindowPos(hoveredHwnd, HWND_TOP, 0, 0, 0, 0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
+                AllowSetForegroundWindow(ASFW_ANY);
+                DWORD fgThread = GetWindowThreadProcessId(GetForegroundWindow(), nullptr);
+                DWORD targetThread = GetWindowThreadProcessId(hoveredHwnd, nullptr);
+                AttachThreadInput(fgThread, targetThread, TRUE);
                 SetForegroundWindow(hoveredHwnd);
+                AttachThreadInput(fgThread, targetThread, FALSE);
             }
 
             showOverlay = false;
