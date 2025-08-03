@@ -10,6 +10,13 @@
 #include <shellapi.h>
 #include "IconUtils.h"
 
+static bool icontains(const std::wstring& hay, const std::wstring& needle) {
+    std::wstring h = hay, n = needle;
+    std::transform(h.begin(), h.end(), h.begin(), ::towlower);
+    std::transform(n.begin(), n.end(), n.begin(), ::towlower);
+    return h.find(n) != std::wstring::npos;
+}
+
 namespace Overlay {
 
     static Renderer* g_renderer = nullptr;
@@ -185,7 +192,7 @@ namespace Overlay {
                 std::transform(q.begin(), q.end(), q.begin(), ::towlower);
 
                 for (auto& e : AppManager::GetAllApps()) {
-                    if (ascii.empty() || AppManager::icontains(e.name, q))
+                    if (ascii.empty() || icontains(e.name, q))
                         filtered.push_back(&e);
                 }
             }
@@ -203,26 +210,37 @@ namespace Overlay {
                 ImGui::SetKeyboardFocusHere(-1);
             }
 
-            std::wstring searchW = std::wstring(searchBuffer, searchBuffer + strlen(searchBuffer));
-            std::transform(searchW.begin(), searchW.end(), searchW.begin(), ::towlower);
-
-            int index = 0;
             int visibleCount = 0;
 
             if (searchApps)
             {
+                if (filtered.empty()) {
+                    selectedIndex = 0;
+                }
+                else {
+                    if (selectedIndex < 0) selectedIndex = 0;
+                    if (selectedIndex >= (int)filtered.size()) selectedIndex = (int)filtered.size() - 1;
+                }
+
                 for (int i = 0; i < (int)filtered.size(); ++i) {
                     auto* e = filtered[i];
                     if (e->icon) { ImGui::Image(e->icon, { 16,16 }); ImGui::SameLine(); }
                     std::string label = std::string(e->name.begin(), e->name.end()) + "##app" + std::to_string(i);
-                    if (ImGui::Selectable(label.c_str(), i == selectedIndex)) {
+
+                    bool isSelected = (i == selectedIndex);
+                    if (ImGui::Selectable(label.c_str(), isSelected)) {
                         ShellExecuteW(nullptr, L"open", e->target.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
                         showOverlay = false;
                     }
+                    if (isSelected) ImGui::SetScrollHereY();
+                    ++visibleCount;
                 }
             }
             else
             {
+                std::vector<const WindowEntry*> visible;
+                visible.reserve(g_wm->windows.size());
+
                 for (const auto& w : g_wm->windows)
                 {
                     std::wstring lowerTitle = w.title;
@@ -233,26 +251,40 @@ namespace Overlay {
                         if (hwndToVk.find(w.hwnd) == hwndToVk.end())
                             continue;
                     }
-                    else if (assignMode)
-                    {
-                        //
-                    }
-                    else
+                    else if (!assignMode)
                     {
                         if (!filter.empty() &&
                             lowerTitle.find(filter) == std::wstring::npos)
                             continue;
                     }
 
-                    if (visibleCount == selectedIndex) hoveredHwnd = w.hwnd;
+                    visible.push_back(&w);
+                }
+
+                visibleCount = (int)visible.size();
+                if (visibleCount > 0)
+                {
+                    if (selectedIndex < 0) selectedIndex = 0;
+                    if (selectedIndex >= visibleCount) selectedIndex = visibleCount - 1;
+                    hoveredHwnd = visible[selectedIndex]->hwnd;
+                }
+                else
+                {
+                    selectedIndex = 0;
+                    hoveredHwnd = nullptr;
+                }
+
+                for (int i = 0; i < visibleCount; ++i)
+                {
+                    const WindowEntry* w = visible[i];
 
                     UINT boundVk = 0;
-                    auto it = hwndToVk.find(w.hwnd);
+                    auto it = hwndToVk.find(w->hwnd);
                     if (it != hwndToVk.end())
                         boundVk = it->second;
 
-                    std::string title = std::string(w.title.begin(), w.title.end());
-                    std::string id = "##" + std::to_string((uintptr_t)w.hwnd);
+                    std::string title = std::string(w->title.begin(), w->title.end());
+                    std::string id = "##" + std::to_string((uintptr_t)w->hwnd);
                     std::string label;
                     if (boundVk)
                     {
@@ -267,11 +299,12 @@ namespace Overlay {
                         label = title + id;
                     }
 
-                    if (w.icon) ImGui::Image(w.icon, ImVec2(16, 16));
+                    if (w->icon) ImGui::Image(w->icon, ImVec2(16, 16));
                     ImGui::SameLine();
 
-                    if (ImGui::Selectable(label.c_str(), visibleCount == selectedIndex)) {
-                        hoveredHwnd = w.hwnd;
+                    bool isSelected = (i == selectedIndex);
+                    if (ImGui::Selectable(label.c_str(), isSelected)) {
+                        hoveredHwnd = w->hwnd;
 
                         std::string cmd(searchBuffer);
                         std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::tolower);
@@ -308,13 +341,15 @@ namespace Overlay {
                         ShowWindow(g_renderer->GetHwnd(), SW_HIDE);
                     }
 
-                    if (ImGui::IsItemHovered()) {
-                        selectedIndex = visibleCount;
-                        hoveredHwnd = w.hwnd;
+                    if (isSelected) {
+                        ImGui::SetScrollHereY();
+                        hoveredHwnd = w->hwnd;
                     }
-                    visibleCount++;
 
-                    ++index;
+                    if (ImGui::IsItemHovered()) {
+                        selectedIndex = i;
+                        hoveredHwnd = w->hwnd;
+                    }
                 }
             }
 
@@ -385,6 +420,4 @@ namespace Overlay {
 
         wasShiftPressed = shiftDown;
     }
-
 }
-
