@@ -1,17 +1,24 @@
 #include "TrayIcon.h"
 #include <shellapi.h>
+#include "Renderer.h"
 
 #define WM_TRAYICON (WM_USER + 1)
 #define ID_TRAY_EXIT 1001
 #define ID_TRAY_AUTOSTART 1002
+#define ID_TRAY_APPEARANCE_ACCENT 1003
+#define ID_TRAY_APPEARANCE_DARK 1004
+
+extern Renderer* g_renderer;
 
 namespace {
     NOTIFYICONDATA nid = {};
     HMENU hTrayMenu = nullptr;
     HWND hTrayWindow = nullptr;
     bool autoStartEnabled = false;
+    bool accentTheme = false;
 
-    bool IsAutoStartEnabled() {
+    bool IsAutoStartEnabled() 
+    {
         HKEY hKey;
         if (RegOpenKeyEx(HKEY_CURRENT_USER,
             L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
@@ -25,7 +32,8 @@ namespace {
         return result;
     }
 
-    void SetAutoStart(bool enable) {
+    void SetAutoStart(bool enable) 
+    {
         HKEY hKey;
         RegCreateKeyExA(HKEY_CURRENT_USER,
             "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
@@ -44,7 +52,32 @@ namespace {
         autoStartEnabled = enable;
     }
 
-    LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    bool IsAccentThemeEnabled() 
+    {
+        HKEY hKey;
+        DWORD value = 0, size = sizeof(value);
+        if (RegOpenKeyExW(HKEY_CURRENT_USER,
+            L"Software\\BetterAltTab", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+            RegQueryValueExW(hKey, L"Theme", nullptr, nullptr, (LPBYTE)&value, &size);
+            RegCloseKey(hKey);
+        }
+        return value == 1;
+    }
+
+    void SetAccentTheme(bool enable) 
+    {
+        HKEY hKey;
+        RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\BetterAltTab", 0, nullptr, 0,
+            KEY_WRITE, nullptr, &hKey, nullptr);
+        DWORD value = enable ? 1 : 0;
+        RegSetValueExW(hKey, L"Theme", 0, REG_DWORD, (const BYTE*)&value, sizeof(value));
+        RegCloseKey(hKey);
+        accentTheme = enable;
+        if (g_renderer) g_renderer->ApplyTheme(enable ? Theme::Accent : Theme::Dark);
+    }
+
+    LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
+    {
         switch (msg)
         {
         case WM_TRAYICON:
@@ -55,6 +88,13 @@ namespace {
 
                 if (hTrayMenu) DestroyMenu(hTrayMenu);
                 hTrayMenu = CreatePopupMenu();
+
+                HMENU hAppearance = CreatePopupMenu();
+                AppendMenu(hAppearance, MF_STRING | (accentTheme ? MF_CHECKED : 0), ID_TRAY_APPEARANCE_ACCENT, L"Accent");
+                AppendMenu(hAppearance, MF_STRING | (!accentTheme ? MF_CHECKED : 0), ID_TRAY_APPEARANCE_DARK, L"Default");
+                AppendMenu(hTrayMenu, MF_POPUP, (UINT_PTR)hAppearance, L"Appearance");
+                //
+                AppendMenu(hTrayMenu, MF_SEPARATOR, 0, nullptr);
 
                 AppendMenu(hTrayMenu, MF_STRING | (autoStartEnabled ? MF_CHECKED : 0), ID_TRAY_AUTOSTART, L"Start on boot");
                 AppendMenu(hTrayMenu, MF_SEPARATOR, 0, nullptr);
@@ -75,6 +115,12 @@ namespace {
             case ID_TRAY_AUTOSTART:
                 SetAutoStart(!autoStartEnabled);
                 break;
+            case ID_TRAY_APPEARANCE_ACCENT:
+                SetAccentTheme(true);
+                break;
+            case ID_TRAY_APPEARANCE_DARK:
+                SetAccentTheme(false);
+                break;
             }
             break;
 
@@ -90,8 +136,11 @@ namespace {
 
 namespace TrayIcon {
 
-    bool Init(HINSTANCE hInstance) {
+    bool Init(HINSTANCE hInstance) 
+    {
         autoStartEnabled = IsAutoStartEnabled();
+        accentTheme = IsAccentThemeEnabled();
+        if (g_renderer) g_renderer->ApplyTheme(accentTheme ? Theme::Accent : Theme::Dark);
 
         WNDCLASS wcTray = {};
         wcTray.lpfnWndProc = TrayWndProc;
@@ -118,7 +167,8 @@ namespace TrayIcon {
         return true;
     }
 
-    void Shutdown() {
+    void Shutdown() 
+    {
         Shell_NotifyIcon(NIM_DELETE, &nid);
         if (hTrayWindow) DestroyWindow(hTrayWindow);
         if (hTrayMenu) DestroyMenu(hTrayMenu);

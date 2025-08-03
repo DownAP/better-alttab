@@ -2,7 +2,8 @@
 #include <imgui.h>
 #include <backends/imgui_impl_win32.h>
 #include <backends/imgui_impl_dx11.h>
-
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
 
 Renderer* g_renderer = nullptr;
 
@@ -36,21 +37,7 @@ bool Renderer::Init(HINSTANCE hInstance)
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiStyle& style = ImGui::GetStyle();
-    ImVec4* colors = style.Colors;
-
-    colors[ImGuiCol_WindowBg] = ImVec4(0.1f, 0.11f, 0.15f, 0.95f);
-    colors[ImGuiCol_Header] = ImVec4(0.2f, 0.25f, 0.3f, 1.0f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.3f, 0.4f, 0.5f, 1.0f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.4f, 0.45f, 0.6f, 1.0f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.15f, 0.18f, 0.22f, 1.0f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.2f, 0.22f, 0.28f, 1.0f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.25f, 0.28f, 0.35f, 1.0f);
-    colors[ImGuiCol_TitleBg] = ImVec4(0.1f, 0.12f, 0.15f, 1.0f);
-    colors[ImGuiCol_TitleBgActive] = ImVec4(0.1f, 0.15f, 0.2f, 1.0f);
-    colors[ImGuiCol_Button] = ImVec4(0.2f, 0.25f, 0.3f, 1.0f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.3f, 0.35f, 0.4f, 1.0f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.35f, 0.4f, 0.5f, 1.0f);
-    colors[ImGuiCol_Text] = ImVec4(0.9f, 0.9f, 0.9f, 1.0f);
+    
 
     style.WindowRounding = 8.0f;
     style.FrameRounding = 5.0f;
@@ -67,6 +54,8 @@ bool Renderer::Init(HINSTANCE hInstance)
     //ImGui::StyleColorsDark();
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
+
+    ApplyTheme(Renderer::currentTheme);
 
     return true;
 }
@@ -171,6 +160,49 @@ void Renderer::Resize(int width, int height)
 
     g_pSwapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
     CreateRenderTarget();
+}
+
+void Renderer::ApplyTheme(Theme theme)
+{
+    Renderer::currentTheme = theme;
+    ImGuiStyle& style = ImGui::GetStyle();
+    ImVec4* colors = style.Colors;
+
+    colors[ImGuiCol_WindowBg] = ImVec4(0.1f, 0.11f, 0.15f, 0.95f);
+    colors[ImGuiCol_Header] = ImVec4(0.2f, 0.25f, 0.3f, 1.0f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.3f, 0.4f, 0.5f, 1.0f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.4f, 0.45f, 0.6f, 1.0f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.15f, 0.18f, 0.22f, 1.0f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.2f, 0.22f, 0.28f, 1.0f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.25f, 0.28f, 0.35f, 1.0f);
+    colors[ImGuiCol_TitleBg] = ImVec4(0.1f, 0.12f, 0.15f, 1.0f);
+    colors[ImGuiCol_TitleBgActive] = ImVec4(0.1f, 0.15f, 0.2f, 1.0f);
+    colors[ImGuiCol_Button] = ImVec4(0.2f, 0.25f, 0.3f, 1.0f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.3f, 0.35f, 0.4f, 1.0f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.35f, 0.4f, 0.5f, 1.0f);
+    colors[ImGuiCol_Text] = ImVec4(0.9f, 0.9f, 0.9f, 1.0f);
+
+    if (theme == Theme::Accent)
+    {
+        DWORD dwmColor;
+        BOOL opaque;
+        if (SUCCEEDED(DwmGetColorizationColor(&dwmColor, &opaque)))
+        {
+            float r = ((dwmColor >> 16) & 0xFF) / 255.0f;
+            float g = ((dwmColor >> 8) & 0xFF) / 255.0f;
+            float b = (dwmColor & 0xFF) / 255.0f;
+            ImVec4 accent(r, g, b, 1.0f);
+
+            colors[ImGuiCol_Header] = accent;
+            colors[ImGuiCol_HeaderHovered] = accent;
+            colors[ImGuiCol_HeaderActive] = accent;
+            colors[ImGuiCol_Button] = accent;
+            colors[ImGuiCol_ButtonHovered] = accent;
+            colors[ImGuiCol_ButtonActive] = accent;
+            colors[ImGuiCol_FrameBgHovered] = accent;
+            colors[ImGuiCol_FrameBgActive] = accent;
+        }
+    }
 }
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
